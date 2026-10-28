@@ -1,0 +1,25 @@
+STATIC QA: PASS
+Rust/Cargo unavailable: NO compilation, NO execution of Rust tests, NO GUI/game runtime test.
+Parser: tree-sitter-rust. Parsing does not verify Rust types or linking.
+
+PASS: All modified Rust files parse without syntax errors
+PASS: Local names no longer require an owning account
+PASS: Launch returns a local-play pass without an owner
+PASS: No automatic startup update check
+PASS: No periodic update check
+PASS: Manual update check cannot start installs
+PASS: Manual update check cannot self-update or refresh nightly
+PASS: Old settings cannot enable automatic installation
+PASS: Launcher replacement is disabled and guarded
+PASS: Automatic account modal removed
+PASS: Mandatory account row removed
+PASS: Microsoft ownership check preserved
+
+Modified original files:
+launcher/src/account.rs
+launcher/src/backend.rs
+launcher/src/cli.rs
+launcher/src/main.rs
+launcher/src/owner_page.rs
+launcher/tests/owner_gate.rs
+launcher/src/account/tests.rs

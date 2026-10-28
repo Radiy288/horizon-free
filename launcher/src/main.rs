@@ -483,7 +483,8 @@ impl Launcher {
                 let _ = tx.send(Msg::Reused(reused));
             }
         });
-        this.fetch_startup_releases();
+        // Load the install catalog only; never check or install updates at startup.
+        this.fetch_releases();
         this.fetch_links();
         // What the game and the launcher kept, if the player allows it and there is a server.
         telemetry::send_in_background();
@@ -597,17 +598,6 @@ impl Launcher {
         });
     }
 
-    fn fetch_startup_releases(&mut self) {
-        self.checked = Some(Instant::now());
-        let tx = self.tx.clone();
-        std::thread::spawn(move || {
-            let updates = backend::releases_and_updates(|releases| {
-                let _ = tx.send(Msg::Releases(releases));
-            });
-            let _ = tx.send(Msg::Updates(updates));
-        });
-    }
-
     fn fetch_links(&self) {
         let tx = self.tx.clone();
         std::thread::spawn(move || {
@@ -660,7 +650,7 @@ impl Launcher {
                                 continue;
                             }
                         };
-                        self.owner = Some(true);
+                        // A successful local launch is not proof of Microsoft ownership.
                         if let Some(file) = file {
                             cmd.arg("--session-file").arg(file);
                         }
@@ -766,13 +756,7 @@ impl Launcher {
                 Msg::Updates(Ok(updates)) => {
                     self.update_error = None;
                     self.updates = updates;
-                    if self.settings.auto_install() {
-                        self.install_update();
-                    }
-                    if let Some(release) = self.updates.launcher.clone() {
-                        self.update_launcher(release);
-                    }
-                    self.update_nightly();
+                    // A manual check reports versions only. Installation requires an explicit action.
                 }
                 Msg::Updates(Err(e)) => self.update_error = Some(e),
                 Msg::NightlyProgress(p) => self.nightly_progress = Some(p),
@@ -932,12 +916,6 @@ impl Launcher {
                 self.sign_in_state = Some(state);
                 changed = true;
             }
-        }
-        if self
-            .checked
-            .is_some_and(|at| at.elapsed() > backend::CHECK_EVERY)
-        {
-            self.check_updates();
         }
         if changed {
             cx.notify();
@@ -2235,11 +2213,9 @@ impl Launcher {
                     .child(play),
             );
 
-        // Not prepared: an owner can have Horizon download Minecraft from Mojang; without an
-        // owner there is nothing to play, so signing in comes first.
-        let first = (!prepared && !self.preparing)
-            .then_some(self.owner)
-            .flatten();
+        // Owners may download from Mojang. Everyone can prepare their local installation.
+        let first = (!prepared && !self.preparing && self.owner == Some(true))
+            .then_some(true);
         let resources_value = match first {
             _ if self.preparing => tr("Preparing…").to_string(),
             Some(true) => trf(
@@ -2346,34 +2322,14 @@ impl Launcher {
             ));
         {
             rows = rows.child(self.join_friend_row(prepared && !running, cx));
-            // The top bar shows who plays; a row only when there is something to do about it:
-            // no account that owns the game (Play needs one), or offline.
-            if self.owner == Some(false) {
-                rows = rows.child(index_row(
-                    5,
-                    tr("Microsoft account"),
-                    Some(
-                        div()
-                            .child(format!("{}.", tr(account::NEEDS_OWNER)))
-                            .into_any_element(),
-                    ),
-                    Some(
-                        button("gate-sign-in", "Sign in", Kind::Primary, &t)
-                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                                this.sign_in_to_play();
-                                cx.notify();
-                            }))
-                            .into_any_element(),
-                    ),
-                    &t,
-                ));
-            } else if self.accounts.selected().is_none() && account::client_id().is_some() {
+            // Local play needs no account. Offer account management for online-mode servers.
+            if self.accounts.selected().is_none() && account::client_id().is_some() {
                 rows = rows.child(index_row(
                     5,
                     tr("Playing offline"),
                     Some(
                         div()
-                            .child(tr("Online servers need a Microsoft account."))
+                            .child(tr("Online-mode servers need a Microsoft account."))
                             .into_any_element(),
                     ),
                     Some(
@@ -2769,16 +2725,7 @@ impl Launcher {
 
     fn settings_page(&mut self, cx: &mut Context<Self>) -> Div {
         let t = self.theme;
-        let toggle = switch("auto-install", self.settings.auto_install(), &t).on_click(
-            cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.settings.install_new_versions = Some(!this.settings.auto_install());
-                this.settings.save();
-                if this.settings.auto_install() {
-                    this.install_update();
-                }
-                cx.notify();
-            }),
-        );
+        let toggle = disabled(switch("auto-install", false, &t));
         let opening = switch("opening", !self.settings.skip_opening, &t).on_click(cx.listener(
             |this, _: &ClickEvent, _, cx| {
                 this.settings.skip_opening = !this.settings.skip_opening;
@@ -2924,7 +2871,7 @@ impl Launcher {
                         n + 1,
                         tr("Install new versions automatically"),
                         Some(plain(
-                            "Your selected version only changes if you were playing the newest one.",
+                            "Disabled in this local build. Install versions manually on the Versions page.",
                         )),
                         Some(toggle.into_any_element()),
                         &t,
@@ -3293,7 +3240,7 @@ impl Launcher {
             Some(SignInState::Done(Ok(a))) => div().child(format!("Signed in as {}.", a.name)),
             Some(SignInState::Done(Err(e))) => div().text_color(t.danger).child(e.clone()),
             None if self.accounts.accounts.is_empty() => div().child(tr(
-                "Horizon needs a Microsoft account that owns Minecraft: Java Edition, like other launchers. It also plays online servers with your name and skin.",
+                "Microsoft sign-in is optional. Play locally with an offline name, or sign in for online-mode servers with your name and skin.",
             )),
             None => div().child(tr("Add another account.")),
         };

@@ -8,8 +8,7 @@ impl Launcher {
     /// Whether the screen covers the window: no owner, and either Play was refused or the player
     /// hasn't read it yet. The data question comes first.
     pub(crate) fn asking_owner(&self) -> bool {
-        self.owner == Some(false)
-            && (self.owner_screen_open || !self.settings.owner_notice_seen)
+        self.owner_screen_open
             && !self.asking_consent()
             && self.opening.is_none()
     }
@@ -45,10 +44,10 @@ impl Launcher {
             .child(
                 text(theme::HEADING)
                     .text_color(t.ink)
-                    .child(format!("{}.", tr(account::NEEDS_OWNER))),
+                    .child(tr("Sign in (optional)")),
             )
             .child(text(theme::UI).text_color(t.muted).child(tr(
-                "Horizon needs a Microsoft account that owns Minecraft: Java Edition, like other launchers.",
+                "Microsoft sign-in is optional. Use a local name for offline play; sign in for online-mode servers.",
             )))
             .child(text(theme::UI).text_color(t.muted).child(tr(
                 "Your worlds, offline names and settings stay where they are.",

@@ -1244,7 +1244,7 @@ fn download_for_owner(
         Ok(pass) => Err(format!(
             "\n  • Downloading {v} from Mojang needs your Microsoft account, which could not be \
              checked: {}",
-            pass.offline.unwrap_or_default()
+            pass.offline.unwrap_or_else(|| "sign in to download, or prepare from your local Minecraft install".into())
         )),
         Err(_) if !accounts.accounts.is_empty() => Err(
             "\n  • No signed-in account owns Minecraft: Java Edition, so Horizon can't download it."
@@ -2155,9 +2155,9 @@ pub fn exe_path() -> &'static Path {
     EXE.get_or_init(|| std::env::current_exe().unwrap_or_else(|_| PathBuf::from(LAUNCHER_BINARY)))
 }
 
-/// Development builds and `HORIZON_LAUNCHER_NO_SELF_UPDATE` never replace themselves.
+/// This local build never replaces itself with an upstream launcher.
 pub fn self_update_allowed() -> bool {
-    !cfg!(debug_assertions) && std::env::var_os("HORIZON_LAUNCHER_NO_SELF_UPDATE").is_none()
+    false
 }
 
 /// The version in `horizon-launcher --version`'s output (`horizon-launcher 0.1.5`).
@@ -2311,6 +2311,9 @@ fn replace_bundle(_new: &Path, _app: &Path) -> Result<(), String> {
 /// keeps working; `restart` starts the new one. When the file there already is that release or
 /// a newer one (updated from the command line or another window), there is nothing to do.
 pub fn self_update(release: &Release, progress: impl Fn(f32)) -> Result<(), String> {
+    if !self_update_allowed() {
+        return Err("Launcher self-update is disabled in this local build.".into());
+    }
     let (url, size) = release
         .asset
         .clone()
@@ -2627,8 +2630,7 @@ pub struct Settings {
     pub instance: Option<String>,
     pub minecraft_dir: Option<PathBuf>,
     pub server_dir: Option<PathBuf>,
-    /// Unset means on: only a player who turned it off has `false` here. 0.1.1 wrote its
-    /// `auto_install` (off by default) for everyone, so this is a new key and that one is ignored.
+    /// Kept for settings compatibility. Automatic installation is disabled in this build.
     #[serde(default)]
     pub install_new_versions: Option<bool>,
     /// Off by default, so the opening animation shows unless the player turns it off.
@@ -2729,7 +2731,7 @@ impl Settings {
     }
     /// Whether new Horizon versions are installed automatically.
     pub fn auto_install(&self) -> bool {
-        self.install_new_versions.unwrap_or(true)
+        false // Ignore old settings that enabled automatic updates.
     }
     pub fn save(&self) {
         let _ = fs::create_dir_all(data_dir());
@@ -3363,25 +3365,12 @@ mod tests {
     }
 
     #[test]
-    fn new_versions_install_automatically_unless_turned_off() {
-        // No settings file, an old one that never mentioned it, and 0.1.1's default `false`.
-        assert!(Settings::parse("").auto_install());
-        assert!(Settings::parse("{}").auto_install());
-        assert!(
-            Settings::parse(r#"{"selected": "v2026.10.13", "auto_install": false}"#).auto_install()
-        );
-        assert!(Settings::parse(r#"{"install_new_versions": true}"#).auto_install());
-        assert!(!Settings::parse(r#"{"install_new_versions": false}"#).auto_install());
-        // Saving after the player turned it off keeps it off.
-        let off = Settings {
-            install_new_versions: Some(false),
-            ..Settings::default()
-        };
-        assert!(!Settings::parse(&serde_json::to_string(&off).unwrap()).auto_install());
-        // The selection rule is unchanged: the new version is selected only from the newest.
-        let installed = ["v2026.10.12".to_string(), "v2026.10.1".to_string()];
-        assert!(select_after_update(Some("v2026.10.12"), &installed));
-        assert!(!select_after_update(Some("v2026.10.1"), &installed));
+    fn automatic_updates_stay_disabled_even_with_old_settings() {
+        for text in ["", "{}", r#"{"auto_install":true}"#,
+            r#"{"install_new_versions":true}"#, r#"{"install_new_versions":false}"#] {
+            assert!(!Settings::parse(text).auto_install());
+        }
+        assert!(!self_update_allowed());
     }
 
     #[test]
